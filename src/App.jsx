@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as Icons from 'lucide-react'
-import { categories, seedExpenses, seedIncome, seedSites } from './data'
+import { categories } from './data'
 import { money, shortDate, sum, taxEstimate, uid } from './utils'
+import ReturnsTax from './ReturnsTax'
 
 const nav = [
   ['dashboard', 'Dashboard', Icons.LayoutDashboard], ['income', 'Income', Icons.ArrowDownToLine],
   ['expenses', 'Expenses', Icons.ReceiptText], ['receipts', 'Receipts', Icons.ScanLine],
   ['sites', 'Sites', Icons.MapPin], ['reports', 'Reports', Icons.ChartNoAxesCombined],
-  ['tax', 'Tax centre', Icons.Landmark], ['year-end', 'Year-end', Icons.PackageCheck],
+  ['tax', 'Returns & tax', Icons.Landmark], ['year-end', 'Year-end', Icons.PackageCheck],
   ['documents', 'Documents', Icons.FolderOpen], ['settings', 'Settings', Icons.Settings]
 ]
 
@@ -27,17 +28,36 @@ export default function App() {
   clearLegacyDemoData()
   const [loggedIn, setLoggedIn] = useState(() => sessionStorage.getItem('cis-authenticated') === 'yes')
   const [page, setPage] = useState('dashboard')
-  const [income, setIncome] = useState(() => getStored('cis-income', seedIncome))
-  const [expenses, setExpenses] = useState(() => getStored('cis-expenses', seedExpenses))
-  const [sites, setSites] = useState(() => getStored('cis-sites', seedSites))
+  const [income, setIncome] = useState([])
+  const [expenses, setExpenses] = useState([])
+  const [sites, setSites] = useState([])
+  const [dataReady, setDataReady] = useState(false)
+  const [dataError, setDataError] = useState('')
   const [dark, setDark] = useState(() => getStored('cis-dark', false))
   const [query, setQuery] = useState('')
   const [modal, setModal] = useState(null)
   const [toast, setToast] = useState('')
 
-  useEffect(() => localStorage.setItem('cis-income', JSON.stringify(income)), [income])
-  useEffect(() => localStorage.setItem('cis-expenses', JSON.stringify(expenses)), [expenses])
-  useEffect(() => localStorage.setItem('cis-sites', JSON.stringify(sites)), [sites])
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const legacy = {
+          income:getStored('cis-income',[]), expenses:getStored('cis-expenses',[]), sites:getStored('cis-sites',[])
+        }
+        if (legacy.income.length || legacy.expenses.length || legacy.sites.length) {
+          const migrated = await fetch('/api/migrate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(legacy)})
+          if (!migrated.ok) throw new Error('Migration failed')
+          ;['cis-income','cis-expenses','cis-sites'].forEach(key=>localStorage.removeItem(key))
+        }
+        const response = await fetch('/api/bootstrap')
+        if (!response.ok) throw new Error('Database unavailable')
+        const data = await response.json()
+        setIncome(data.income); setExpenses(data.expenses); setSites(data.sites)
+      } catch { setDataError('The database server is not connected. Start Ledgerly with npm run dev.') }
+      finally { setDataReady(true) }
+    }
+    load()
+  }, [])
   useEffect(() => localStorage.setItem('cis-dark', JSON.stringify(dark)), [dark])
   useEffect(() => { if (toast) { const id = setTimeout(() => setToast(''), 2600); return () => clearTimeout(id) } }, [toast])
 
@@ -54,11 +74,16 @@ export default function App() {
   const health = hasRecords ? Math.max(0, Math.round(100 - missingReceipts.length * 8 - income.filter(x => !x.attachment).length * 5)) : 0
   const traffic = !hasRecords ? 'amber' : health >= 90 ? 'green' : health >= 70 ? 'amber' : 'red'
 
-  const addRecord = (type, record) => {
-    if (type === 'income') setIncome(v => [{ ...record, id: uid('i') }, ...v])
-    if (type === 'expense') setExpenses(v => [{ ...record, id: uid('e') }, ...v])
-    if (type === 'site') setSites(v => [{ ...record, id: uid('s') }, ...v])
-    setModal(null); setToast(`${type[0].toUpperCase() + type.slice(1)} saved`)
+  const addRecord = async (type, record) => {
+    const saved = { ...record, id: uid(type[0]) }
+    try {
+      const response = await fetch('/api/'+type,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(saved)})
+      if (!response.ok) throw new Error('Save failed')
+      if (type === 'income') setIncome(v => [saved, ...v])
+      if (type === 'expense') setExpenses(v => [saved, ...v])
+      if (type === 'site') setSites(v => [saved, ...v])
+      setModal(null); setToast(`${type[0].toUpperCase() + type.slice(1)} saved to database`)
+    } catch { setToast('Could not save — check the database server') }
   }
 
   const exportCsv = (rows, filename) => {
@@ -77,10 +102,11 @@ export default function App() {
   ].slice(0, 7) : []
 
   const props = { income, expenses, sites, totals, health, traffic, missingReceipts, setModal, setToast, exportCsv, setIncome, setExpenses }
-  const views = { dashboard: Dashboard, income: Income, expenses: Expenses, receipts: Receipts, sites: Sites, reports: Reports, tax: TaxCentre, 'year-end': YearEnd, documents: Documents, settings: SettingsPage }
+  const views = { dashboard: Dashboard, income: Income, expenses: Expenses, receipts: Receipts, sites: Sites, reports: Reports, tax: ReturnsTax, 'year-end': YearEnd, documents: Documents, settings: SettingsPage }
   const View = views[page]
 
   if (!loggedIn) return <AuthScreen onAuthenticated={() => { sessionStorage.setItem('cis-authenticated', 'yes'); setLoggedIn(true) }}/>
+  if (!dataReady) return <div className="data-loading"><Icons.Database size={26}/><strong>Opening Ledgerly…</strong><span>Connecting to your bookkeeping database</span></div>
 
   return <div className={dark ? 'app dark' : 'app'}>
     <aside className="sidebar">
@@ -97,7 +123,7 @@ export default function App() {
         <button className="icon-btn"><Icons.HelpCircle size={19}/></button><button className="icon-btn notification"><Icons.Bell size={19}/><i/></button>
         <button className="primary compact" onClick={() => setModal(page === 'income' ? 'income' : 'expense')}><Icons.Plus size={17}/> Add transaction</button>
       </header>
-      <div className="content"><View {...props}/></div>
+      <div className="content">{dataError && <div className="database-error"><Icons.DatabaseZap size={18}/>{dataError}</div>}<View {...props}/></div>
     </main>
     {modal && <RecordModal type={modal} sites={sites} onClose={() => setModal(null)} onSave={addRecord}/>} 
     {toast && <div className="toast"><Icons.CircleCheck size={18}/>{toast}</div>}
