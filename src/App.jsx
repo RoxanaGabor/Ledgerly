@@ -111,11 +111,8 @@ async function passwordHash(value) {
 }
 
 function AuthScreen({ onAuthenticated }) {
-  const savedLogin = getStored('cis-admin-login', null)
-  const setup = !savedLogin
-  const [username, setUsername] = useState(setup ? '' : savedLogin.username)
+  const [username, setUsername] = useState('Bogdan')
   const [password, setPassword] = useState('')
-  const [confirm, setConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -125,13 +122,10 @@ function AuthScreen({ onAuthenticated }) {
     const cleanUsername = username.trim().toLowerCase()
     if (!cleanUsername) return setError('Enter a username.')
     if (password.length < 8) return setError('Password must contain at least 8 characters.')
-    if (setup && password !== confirm) return setError('The passwords do not match.')
     setBusy(true)
-    const hash = await passwordHash(password)
-    if (setup) {
-      localStorage.setItem('cis-admin-login', JSON.stringify({ username: cleanUsername, hash }))
-      onAuthenticated()
-    } else if (cleanUsername === savedLogin.username && hash === savedLogin.hash) {
+    const enteredHash = await passwordHash(password)
+    const adminHash = '08dca4c597c6582fd85b4c4622e2c6c70a25ec248233f4982ca773ae2e32e29f'
+    if (cleanUsername === 'bogdan' && enteredHash === adminHash) {
       onAuthenticated()
     } else {
       setError('Incorrect username or password.')
@@ -146,13 +140,12 @@ function AuthScreen({ onAuthenticated }) {
       <form className="auth-card" onSubmit={submit}>
         <div className="auth-avatar">BG</div>
         <span className="eyebrow">Administrator access</span>
-        <h2>{setup ? 'Create your login' : 'Welcome back, Bogdan'}</h2>
-        <p>{setup ? 'Set the credentials you’ll use to access the bookkeeping workspace.' : 'Sign in to access the bookkeeping workspace.'}</p>
+        <h2>Welcome back, Bogdan</h2>
+        <p>Sign in to access the bookkeeping workspace.</p>
         <label>Username<div className="auth-input"><Icons.UserRound size={17}/><input autoFocus autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} placeholder="Choose a username"/></div></label>
-        <label>Password<div className="auth-input"><Icons.LockKeyhole size={17}/><input type={showPassword?'text':'password'} autoComplete={setup?'new-password':'current-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 8 characters"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword?'Hide password':'Show password'}>{showPassword?<Icons.EyeOff size={17}/>:<Icons.Eye size={17}/>}</button></div></label>
-        {setup && <label>Confirm password<div className="auth-input"><Icons.LockKeyhole size={17}/><input type={showPassword?'text':'password'} autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Enter password again"/></div></label>}
+        <label>Password<div className="auth-input"><Icons.LockKeyhole size={17}/><input type={showPassword?'text':'password'} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Enter your password"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword?'Hide password':'Show password'}>{showPassword?<Icons.EyeOff size={17}/>:<Icons.Eye size={17}/>}</button></div></label>
         {error && <div className="auth-error"><Icons.AlertCircle size={16}/>{error}</div>}
-        <button className="auth-submit" disabled={busy}>{busy ? 'Please wait…' : setup ? 'Create login & continue' : 'Sign in'}<Icons.ArrowRight size={17}/></button>
+        <button className="auth-submit" disabled={busy}>{busy ? 'Please wait…' : 'Sign in'}<Icons.ArrowRight size={17}/></button>
         <small><Icons.Lock size={12}/> Your login remains on this device.</small>
       </form>
     </div>
