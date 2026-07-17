@@ -3,10 +3,11 @@ import * as Icons from 'lucide-react'
 import { categories } from './data'
 import { money, shortDate, sum, taxEstimate, uid } from './utils'
 import ReturnsTax from './ReturnsTax'
+import Invoices from './Invoices'
 
 const nav = [
   ['dashboard', 'Dashboard', Icons.LayoutDashboard], ['income', 'Income', Icons.ArrowDownToLine],
-  ['expenses', 'Expenses', Icons.ReceiptText], ['receipts', 'Receipts', Icons.ScanLine],
+  ['expenses', 'Expenses', Icons.ReceiptText], ['invoices', 'Invoices sent', Icons.FileUp], ['receipts', 'Receipts', Icons.ScanLine],
   ['sites', 'Sites', Icons.MapPin], ['reports', 'Reports', Icons.ChartNoAxesCombined],
   ['tax', 'Returns & tax', Icons.Landmark], ['year-end', 'Year-end', Icons.PackageCheck],
   ['documents', 'Documents', Icons.FolderOpen], ['settings', 'Settings', Icons.Settings]
@@ -24,6 +25,12 @@ function clearLegacyDemoData() {
   }
 }
 
+function currentWeekKey() {
+  const date = new Date(), day = date.getDay() || 7
+  date.setDate(date.getDate() - day + 1)
+  return date.toISOString().slice(0,10)
+}
+
 export default function App() {
   clearLegacyDemoData()
   const [loggedIn, setLoggedIn] = useState(() => sessionStorage.getItem('cis-authenticated') === 'yes')
@@ -31,12 +38,15 @@ export default function App() {
   const [income, setIncome] = useState([])
   const [expenses, setExpenses] = useState([])
   const [sites, setSites] = useState([])
+  const [invoices, setInvoices] = useState([])
   const [dataReady, setDataReady] = useState(false)
   const [dataError, setDataError] = useState('')
   const [dark, setDark] = useState(() => getStored('cis-dark', false))
   const [query, setQuery] = useState('')
   const [modal, setModal] = useState(null)
   const [toast, setToast] = useState('')
+  const [overlay, setOverlay] = useState(null)
+  const [weeklyReviews, setWeeklyReviews] = useState([])
 
   useEffect(() => {
     const load = async () => {
@@ -52,7 +62,7 @@ export default function App() {
         const response = await fetch('/api/bootstrap')
         if (!response.ok) throw new Error('Database unavailable')
         const data = await response.json()
-        setIncome(data.income); setExpenses(data.expenses); setSites(data.sites)
+        setIncome(data.income); setExpenses(data.expenses); setSites(data.sites); setInvoices(data.invoices || []); setWeeklyReviews(data.weeklyReviews || [])
       } catch { setDataError('The database server is not connected. Start Ledgerly with npm run dev.') }
       finally { setDataReady(true) }
     }
@@ -94,6 +104,27 @@ export default function App() {
     setToast('CSV export prepared')
   }
 
+  const completeWeek = async () => {
+    const weekKey = currentWeekKey()
+    try {
+      const response = await fetch('/api/weekly-review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey})})
+      if (!response.ok) throw new Error('Save failed')
+      const review = await response.json()
+      setWeeklyReviews(items => [review, ...items.filter(x=>x.weekKey!==weekKey)])
+      setToast('Weekly review completed and saved')
+    } catch { setToast('Could not complete the weekly review') }
+  }
+
+  const addInvoice = async invoice => {
+    const saved = { ...invoice, id:uid('inv') }
+    try {
+      const response = await fetch('/api/invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(saved)})
+      if (!response.ok) return false
+      const clean = { ...saved }; delete clean.fileData
+      setInvoices(items=>[clean,...items]); setToast('Invoice saved to database'); return true
+    } catch { setToast('Could not save the invoice'); return false }
+  }
+
   const openSearchResult = (target) => { setPage(target); setQuery('') }
   const searchResults = query.length > 1 ? [
     ...income.filter(x => Object.values(x).join(' ').toLowerCase().includes(query.toLowerCase())).map(x => ({ type: 'income', title: `${money(x.gross)} income`, detail: x.site })),
@@ -101,8 +132,8 @@ export default function App() {
     ...sites.filter(x => Object.values(x).join(' ').toLowerCase().includes(query.toLowerCase())).map(x => ({ type: 'sites', title: x.name, detail: x.address }))
   ].slice(0, 7) : []
 
-  const props = { income, expenses, sites, totals, health, traffic, missingReceipts, setModal, setToast, exportCsv, setIncome, setExpenses }
-  const views = { dashboard: Dashboard, income: Income, expenses: Expenses, receipts: Receipts, sites: Sites, reports: Reports, tax: ReturnsTax, 'year-end': YearEnd, documents: Documents, settings: SettingsPage }
+  const props = { income, expenses, sites, invoices, totals, health, traffic, missingReceipts, setModal, setToast, exportCsv, setIncome, setExpenses, setPage, setOverlay, weeklyReviews, completeWeek, onSave:addInvoice }
+  const views = { dashboard: Dashboard, income: Income, expenses: Expenses, invoices: Invoices, receipts: Receipts, sites: Sites, reports: Reports, tax: ReturnsTax, 'year-end': YearEnd, documents: Documents, settings: SettingsPage }
   const View = views[page]
 
   if (!loggedIn) return <AuthScreen onAuthenticated={() => { sessionStorage.setItem('cis-authenticated', 'yes'); setLoggedIn(true) }}/>
@@ -120,12 +151,13 @@ export default function App() {
         <div className="search"><Icons.Search size={18}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search transactions, sites, documents…"/><kbd>⌘ K</kbd>
           {query.length > 1 && <div className="search-results">{searchResults.length ? searchResults.map((r, i) => <button key={i} onClick={() => openSearchResult(r.type)}><Icons.Search size={15}/><span><strong>{r.title}</strong><small>{r.detail}</small></span></button>) : <p>No results found</p>}</div>}
         </div>
-        <button className="icon-btn"><Icons.HelpCircle size={19}/></button><button className="icon-btn notification"><Icons.Bell size={19}/><i/></button>
+        <button className="icon-btn" title="Help" onClick={()=>setOverlay('help')}><Icons.HelpCircle size={19}/></button><button className="icon-btn notification" title="Notifications" onClick={()=>setOverlay('notifications')}><Icons.Bell size={19}/><i/></button>
         <button className="primary compact" onClick={() => setModal(page === 'income' ? 'income' : 'expense')}><Icons.Plus size={17}/> Add transaction</button>
       </header>
       <div className="content">{dataError && <div className="database-error"><Icons.DatabaseZap size={18}/>{dataError}</div>}<View {...props}/></div>
     </main>
     {modal && <RecordModal type={modal} sites={sites} onClose={() => setModal(null)} onSave={addRecord}/>} 
+    {overlay && <InfoPanel type={overlay} onClose={()=>setOverlay(null)} setOverlay={setOverlay} setPage={setPage} missingReceipts={missingReceipts} income={income} expenses={expenses} sites={sites} weeklyReviews={weeklyReviews} completeWeek={completeWeek}/>}
     {toast && <div className="toast"><Icons.CircleCheck size={18}/>{toast}</div>}
   </div>
 }
@@ -183,12 +215,14 @@ function PageHead({ eyebrow, title, text, children }) { return <div className="p
 function Card({ children, className = '' }) { return <section className={`card ${className}`}>{children}</section> }
 function Delta({ children, down }) { return <span className={down ? 'delta down' : 'delta'}>{down ? <Icons.TrendingDown size={13}/> : <Icons.TrendingUp size={13}/>} {children}</span> }
 
-function Dashboard({ totals, health, traffic, missingReceipts, income, expenses, setModal, sites }) {
+function Dashboard({ totals, health, traffic, missingReceipts, income, expenses, setModal, sites, setPage, setOverlay, weeklyReviews, completeWeek }) {
   const chart = Array(12).fill(0)
   const hasRecords = income.length + expenses.length > 0
+  const weekComplete = weeklyReviews.some(x=>x.weekKey===currentWeekKey())
+  const taskCount = missingReceipts.length + 1 + (weekComplete ? 0 : 1)
   return <>
-    <PageHead eyebrow="Friday, 17 July" title="Good afternoon, Bogdan" text="Here’s how the books are looking for the 2026–27 tax year."><button className="secondary"><Icons.CalendarDays size={17}/> 6 Apr 2026 – 5 Apr 2027</button></PageHead>
-    <div className={`health-banner ${traffic}`}><div className="health-icon"><Icons.ShieldCheck size={24}/></div><div><strong>{!hasRecords ? 'Ready when you are' : traffic === 'green' ? 'Everything is up to date' : 'Your books need a little attention'}</strong><span>{!hasRecords ? 'Add your first income or expense to begin tracking your bookkeeping health.' : missingReceipts.length ? `${missingReceipts.length} receipts are missing. Add them to keep your records complete.` : 'No urgent tasks. Your bookkeeping is in excellent shape.'}</span></div><div className="score"><b>{health}</b><span>/ 100 health</span></div><button>Review tasks <Icons.ArrowRight size={16}/></button></div>
+    <PageHead eyebrow="Friday, 17 July" title="Good afternoon, Bogdan" text="Here’s how the books are looking for the 2026–27 tax year."><button className="secondary" onClick={()=>setOverlay('tax-year')}><Icons.CalendarDays size={17}/> 6 Apr 2026 – 5 Apr 2027</button></PageHead>
+    <div className={`health-banner ${traffic}`}><div className="health-icon"><Icons.ShieldCheck size={24}/></div><div><strong>{!hasRecords ? 'Ready when you are' : traffic === 'green' ? 'Everything is up to date' : 'Your books need a little attention'}</strong><span>{!hasRecords ? 'Add your first income or expense to begin tracking your bookkeeping health.' : missingReceipts.length ? `${missingReceipts.length} receipts are missing. Add them to keep your records complete.` : 'No urgent tasks. Your bookkeeping is in excellent shape.'}</span></div><div className="score"><b>{health}</b><span>/ 100 health</span></div><button onClick={()=>setOverlay('tasks')}>Review tasks <Icons.ArrowRight size={16}/></button></div>
     <div className="stats-grid">
       <Card><div className="stat-label"><span className="tint green"><Icons.ArrowDownToLine size={17}/></span>Total income<Icons.Info size={14}/></div><h2>{money(totals.gross)}</h2><span className="muted">No comparison data</span></Card>
       <Card><div className="stat-label"><span className="tint coral"><Icons.ArrowUpFromLine size={17}/></span>Total expenses<Icons.Info size={14}/></div><h2>{money(totals.spent)}</h2><span className="muted">No comparison data</span></Card>
@@ -197,22 +231,22 @@ function Dashboard({ totals, health, traffic, missingReceipts, income, expenses,
     </div>
     <div className="dashboard-grid">
       <Card className="profit-card"><div className="card-head"><div><h3>Income & expenses</h3><p>Monthly performance</p></div><div className="legend"><i className="l-income"/>Income <i className="l-expense"/>Expenses</div></div><div className="chart"><div className="ylabels"><span>£3k</span><span>£2k</span><span>£1k</span><span>£0</span></div><div className="bars">{chart.map((n,i) => <div className="bar-pair" key={i}><i style={{height:`${n}%`}}/><b style={{height:`${Math.max(12,n*.28)}%`}}/><span>{['A','M','J','J','A','S','O','N','D','J','F','M'][i]}</span></div>)}</div></div></Card>
-      <Card className="tasks-card"><div className="card-head"><div><h3>Today’s tasks</h3><p>{missingReceipts.length + 2} items need attention</p></div><button className="text-btn">View all</button></div>
-        <Task icon={Icons.Receipt} tone="amber" title={`${missingReceipts.length} missing receipts`} text="Upload or match receipts"/>
-        <Task icon={Icons.RefreshCw} tone="blue" title="Bank reconciliation" text="Last reconciled 8 days ago"/>
-        <Task icon={Icons.ClipboardCheck} tone="purple" title="Complete weekly review" text="Due today"/>
-        <button className="complete-week"><Icons.CheckCircle2 size={18}/> Complete this week</button>
+      <Card className="tasks-card"><div className="card-head"><div><h3>Today’s tasks</h3><p>{taskCount} items need attention</p></div><button className="text-btn" onClick={()=>setOverlay('tasks')}>View all</button></div>
+        <Task onClick={()=>setPage('receipts')} icon={Icons.Receipt} tone="amber" title={`${missingReceipts.length} missing receipts`} text="Upload or match receipts"/>
+        <Task onClick={()=>setOverlay('reconciliation')} icon={Icons.RefreshCw} tone="blue" title="Bank reconciliation" text="Review reconciliation status"/>
+        <Task onClick={weekComplete?()=>setOverlay('weekly-complete'):completeWeek} icon={weekComplete?Icons.CircleCheck:Icons.ClipboardCheck} tone={weekComplete?'green':'purple'} title={weekComplete?'Weekly review completed':'Complete weekly review'} text={weekComplete?'Saved for this week':'Due this week'}/>
+        <button className="complete-week" onClick={completeWeek} disabled={weekComplete}><Icons.CheckCircle2 size={18}/> {weekComplete?'Week completed':'Complete this week'}</button>
       </Card>
-      <Card className="activity"><div className="card-head"><div><h3>Recent activity</h3><p>Latest changes to your books</p></div><button className="text-btn">View audit log</button></div>
+      <Card className="activity"><div className="card-head"><div><h3>Recent activity</h3><p>Latest changes to your books</p></div><button className="text-btn" onClick={()=>setOverlay('activity')}>View audit log</button></div>
         {[...expenses.slice(0,3).map(x => ({ icon: Icons.ReceiptText, title: `${x.supplier} expense added`, detail: `${money(x.amount)} · ${x.category}`, date: x.date })), ...income.slice(0,2).map(x => ({ icon: Icons.ArrowDownToLine, title: 'Income payment recorded', detail: `${money(x.gross)} · ${x.site}`, date: x.date }))].map((a,i)=><div className="activity-row" key={i}><span><a.icon size={16}/></span><div><strong>{a.title}</strong><small>{a.detail}</small></div><time>{shortDate(a.date)}</time></div>)}
         {!hasRecords && <div className="empty-inline"><Icons.Activity size={20}/><span>No activity yet</span></div>}
       </Card>
-      <Card className="quick"><div className="card-head"><div><h3>Quick actions</h3><p>Common bookkeeping tasks</p></div></div><div className="quick-grid"><button onClick={() => setModal('income')}><span><Icons.ArrowDownToLine/></span>Add income</button><button onClick={() => setModal('expense')}><span><Icons.ReceiptText/></span>Add expense</button><button><span><Icons.Upload/></span>Upload receipt</button><button><span><Icons.FileBarChart/></span>Run report</button></div><div className="site-mini"><span className="tint green"><Icons.MapPin size={17}/></span><div><small>Current site</small><strong>{sites.find(s=>s.status==='Active')?.name || 'No active site'}</strong></div><Icons.ChevronRight size={18}/></div></Card>
+      <Card className="quick"><div className="card-head"><div><h3>Quick actions</h3><p>Common bookkeeping tasks</p></div></div><div className="quick-grid"><button onClick={() => setModal('income')}><span><Icons.ArrowDownToLine/></span>Add income</button><button onClick={() => setModal('expense')}><span><Icons.ReceiptText/></span>Add expense</button><button onClick={()=>setPage('receipts')}><span><Icons.Upload/></span>Upload receipt</button><button onClick={()=>setPage('reports')}><span><Icons.FileBarChart/></span>Run report</button></div><button className="site-mini site-mini-button" onClick={()=>setPage('sites')}><span className="tint green"><Icons.MapPin size={17}/></span><div><small>Current site</small><strong>{sites.find(s=>s.status==='Active')?.name || 'No active site'}</strong></div><Icons.ChevronRight size={18}/></button></Card>
     </div>
   </>
 }
 
-function Task({ icon: Icon, tone, title, text }) { return <div className="task"><span className={`tint ${tone}`}><Icon size={17}/></span><div><strong>{title}</strong><small>{text}</small></div><Icons.ChevronRight size={17}/></div> }
+function Task({ icon: Icon, tone, title, text, onClick }) { return <button className="task task-button" onClick={onClick}><span className={`tint ${tone}`}><Icon size={17}/></span><div><strong>{title}</strong><small>{text}</small></div><Icons.ChevronRight size={17}/></button> }
 
 function Income({ income, totals, setModal, exportCsv }) {
   return <><PageHead eyebrow="Money in" title="Income ledger" text="Track gross payments and CIS deductions across every site."><button className="secondary" onClick={() => exportCsv(income, 'income-ledger.csv')}><Icons.Download size={17}/> Export</button><button className="primary" onClick={() => setModal('income')}><Icons.Plus size={17}/> Add income</button></PageHead>
@@ -243,6 +277,23 @@ function YearEnd({ missingReceipts, income, expenses, setToast }) { const checks
 function Documents() { return <><PageHead eyebrow="Secure records" title="Document library" text="Keep essential business, vehicle and HMRC documents in one place."><button className="primary"><Icons.Upload size={17}/> Upload document</button></PageHead><div className="folder-grid">{['Insurance','Vehicle documents','HMRC letters','CIS statements','Qualifications','Contracts'].map(x=><Card className="folder" key={x}><Icons.Folder fill="currentColor"/><div><strong>{x}</strong><span>0 documents</span></div></Card>)}</div><Card className="table-card"><div className="card-head padded"><div><h3>Recent documents</h3><p>Files added most recently</p></div></div><div className="empty-table"><Icons.FilePlus2/><strong>No documents yet</strong><span>Upload your first document to get started.</span></div></Card></> }
 
 function SettingsPage() { return <><PageHead eyebrow="Administration" title="Settings" text="Manage business details, categories, users and preferences."/><div className="settings-layout"><Card className="settings-nav">{[['Business details',Icons.Building2],['Tax year',Icons.Calendar],['Users & permissions',Icons.Users],['Categories',Icons.Tags],['Notifications',Icons.Bell],['Backup & data',Icons.Database]].map(([x,I],i)=><button className={i===0?'active':''} key={x}><I size={17}/>{x}<Icons.ChevronRight size={15}/></button>)}</Card><Card className="form-card"><div className="card-head"><div><h3>Business details</h3><p>Information used across reports and exports.</p></div></div><div className="form-grid"><label>Trading name<input placeholder="Enter trading name"/></label><label>Business type<input defaultValue="Sole trader"/></label><label>Unique Taxpayer Reference<input placeholder="Enter UTR"/></label><label>National Insurance number<input placeholder="Enter NI number"/></label><label className="wide">Business address<textarea placeholder="Enter business address"/></label></div><div className="form-footer"><button className="primary">Save changes</button></div></Card></div></> }
+
+function InfoPanel({ type, onClose, setOverlay, setPage, missingReceipts, income, expenses, sites, weeklyReviews, completeWeek }) {
+  const go = page => { setPage(page); onClose() }
+  const activity = [...expenses.map(x=>({title:`${x.supplier} expense`,detail:`${money(x.amount)} · ${x.category}`,date:x.date})),...income.map(x=>({title:'Income recorded',detail:`${money(x.gross)} · ${x.site}`,date:x.date}))].sort((a,b)=>b.date.localeCompare(a.date))
+  const titles = { help:'Help & shortcuts', notifications:'Notifications', tasks:'Tasks requiring attention', activity:'Activity log', 'tax-year':'Current tax year', reconciliation:'Bank reconciliation', 'weekly-complete':'Weekly review' }
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="info-panel" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Dashboard</span><h2>{titles[type]}</h2></div><button onClick={onClose}><Icons.X/></button></div><div className="info-panel-body">
+    {type==='help' && <><PanelRow icon={Icons.Plus} title="Add a transaction" text="Use the top-right button or the dashboard quick actions."/><PanelRow icon={Icons.Search} title="Search your books" text="Search income, expenses and sites from the top bar."/><PanelRow icon={Icons.Command} title="Keyboard shortcuts" text="⌘ K focuses search. More shortcuts will be added as each screen is completed."/><div className="panel-note"><Icons.LifeBuoy/>Ledgerly is stored locally on this computer and backed by its SQLite database.</div></>}
+    {type==='notifications' && <><PanelRow icon={missingReceipts.length?Icons.AlertCircle:Icons.CircleCheck} title={missingReceipts.length?`${missingReceipts.length} receipts missing`:'No missing receipts'} text={missingReceipts.length?'Add evidence for outstanding expenses.':'Your receipt records are complete.'} action={missingReceipts.length?'Open receipts':null} onClick={()=>go('receipts')}/><PanelRow icon={Icons.CalendarClock} title="Q1 update deadline" text="Quarterly update due 7 August 2026." action="Open returns" onClick={()=>go('tax')}/><PanelRow icon={Icons.Database} title="Database connected" text="Your records are being saved to SQLite."/></>}
+    {type==='tasks' && <><PanelRow icon={Icons.Receipt} title={`${missingReceipts.length} missing receipts`} text="Upload or match evidence to recorded expenses." action="Review" onClick={()=>go('receipts')}/><PanelRow icon={Icons.RefreshCw} title="Bank reconciliation" text="Review the status of your manual reconciliation." action="Details" onClick={()=>setOverlay('reconciliation')}/><PanelRow icon={weeklyReviews.some(x=>x.weekKey===currentWeekKey())?Icons.CircleCheck:Icons.ClipboardCheck} title={weeklyReviews.some(x=>x.weekKey===currentWeekKey())?'Weekly review completed':'Weekly review due'} text="Confirm this week’s records are complete." action={weeklyReviews.some(x=>x.weekKey===currentWeekKey())?null:'Complete'} onClick={completeWeek}/></>}
+    {type==='activity' && (activity.length?<div className="panel-activity">{activity.map((x,i)=><div key={i}><span><Icons.History size={15}/></span><div><strong>{x.title}</strong><small>{x.detail}</small></div><time>{shortDate(x.date)}</time></div>)}</div>:<div className="panel-empty"><Icons.Activity/><strong>No activity yet</strong><span>Your saved transactions will appear here.</span></div>)}
+    {type==='tax-year' && <><div className="tax-year-panel"><Icons.CalendarRange/><span>Current period</span><strong>6 April 2026 – 5 April 2027</strong><small>All dashboard totals use this UK tax year.</small></div><PanelRow icon={Icons.CalendarDays} title="Quarterly periods" text="Q1 ends 5 July, Q2 5 October, Q3 5 January and Q4 5 April." action="View returns" onClick={()=>go('tax')}/></>}
+    {type==='reconciliation' && <><div className="panel-empty compact-empty"><Icons.Landmark/><strong>Manual bank reconciliation</strong><span>A dedicated reconciliation workspace will be built when we work on that screen. The dashboard action is now connected and ready for it.</span></div></>}
+    {type==='weekly-complete' && <div className="panel-empty compact-empty success-empty"><Icons.BadgeCheck/><strong>This week is complete</strong><span>The review was saved to the database and will remain complete after restarting Ledgerly.</span></div>}
+  </div></section></div>
+}
+
+function PanelRow({ icon:Icon, title, text, action, onClick }) { return <button className="panel-row" onClick={onClick} disabled={!onClick}><span><Icon size={17}/></span><div><strong>{title}</strong><small>{text}</small></div>{action&&<b>{action}<Icons.ChevronRight size={14}/></b>}</button> }
 
 function RecordModal({ type, sites, onClose, onSave }) {
   const isIncome=type==='income', isExpense=type==='expense', isSite=type==='site'
