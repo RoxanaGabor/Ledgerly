@@ -31,7 +31,7 @@ main{min-width:0}.topbar{height:68px;background:var(--surface);border-bottom:1px
 .quarter-card{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:14px;text-align:left}
 .quarter-card.selected{border-color:var(--green);box-shadow:0 0 0 2px #126b5b18}
 .quarter-card>div{display:flex;justify-content:space-between}.quarter-card>div b{color:var(--green)}
-.quarter-card>strong,.quarter-card>small{display:block}.quarter-card>strong{font-size:11px;margin-top:12px}.quarter-card>small{font-size:9px;color:var(--muted);margin-top:3px}
+.quarter-card>strong,.quarter-card>small,.quarter-card>em{display:block}.quarter-card>strong{font-size:11px;margin-top:12px}.quarter-card>small{font-size:9px;color:var(--muted);margin-top:3px}.quarter-card>em{font-size:9px;color:#c43f31;font-style:normal;font-weight:700;margin-top:5px}
 .quarter-card>div span{font-size:8px;background:var(--hover);padding:3px 6px;border-radius:8px}
 .quarter-card dl{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--line);padding-top:9px;margin:12px 0 0}
 .quarter-card dt{font-size:8px;color:var(--muted)}.quarter-card dd{font-size:11px;font-weight:700;margin:3px 0}
@@ -43,6 +43,7 @@ main{min-width:0}.topbar{height:68px;background:var(--surface);border-bottom:1px
 .cumulative-box>div{display:flex;align-items:center;gap:10px}.cumulative-box span,.cumulative-box strong,.cumulative-box small{display:block}.cumulative-box small{font-size:9px}.cumulative-box>div:last-child span{font-size:9px}.cumulative-box>div:last-child b{font-size:13px;margin-top:3px}
 .return-checks{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}.return-checks>div{background:var(--hover);padding:10px;border-radius:7px;font-size:9px}
 .return-checks span,.return-checks b{display:flex;align-items:center;gap:5px}.return-checks b{margin-top:5px}.return-checks svg{width:14px;color:var(--green)}
+.return-checks .check-fail{background:#fff0ed}.dark .return-checks .check-fail{background:#3a211d}.return-checks .check-fail svg,.return-checks .check-fail b{color:#b84433}.quarter-state.ready,.quarter-state.submitted{background:#e3f3ed!important;color:#176d5c!important}.quarter-state.action-needed{background:#ffebe7!important;color:#9a3929!important}.quarter-state.in-progress{background:#fff1d6!important;color:#8b5b17!important}
 .quarter-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;border-top:1px solid var(--line);padding-top:13px}.quarter-actions p{margin-right:auto;display:flex;align-items:center;gap:5px}
 .annual-quarters{overflow:hidden;margin-bottom:12px}
 .data-loading{min-height:100vh;background:#0d302b;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}.data-loading svg{color:#e7b65a;margin-bottom:5px}.data-loading strong{font-size:16px}.data-loading span{font-size:10px;color:#a9c7c0}.database-error{display:flex;align-items:center;gap:8px;background:#fff0ed;border:1px solid #db8d7d;color:#713526;border-radius:8px;padding:10px 12px;margin-bottom:15px;font-size:11px}.dark .database-error{background:#3a211d;color:#ffe8e3}
